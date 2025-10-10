@@ -77,12 +77,17 @@ static void print_usage(void);
 static int print_image_rev_info(char *qspi_mtd_file, char *image_name);
 static int clear_multiboot_val(void);
 static int extract_image_version(char *qspi_mtd_file);
+static int set_partition(int partition);
 
 /* Variable definitions */
 static char *srcaddr = NULL;
 static unsigned int image_size;
 static float img_ver;
 static struct sys_boot_img_info boot_img_info __attribute__ ((aligned(4U)));
+char image_file_name[100U] = {0U};
+char image_name[8] = {0U};
+char qspi_mtd_file[20U] = {0U};
+char last_boot_img[20U] = {0U};
 
 static const unsigned int crc_table[] = {
 	0x00000000U, 0x77073096U, 0xEE0E612CU, 0x990951BAU,
@@ -172,17 +177,15 @@ static const unsigned int crc_table[] = {
 int main(int argc, char *argv[])
 {
 	int ret = XST_FAILURE;
-	char qspi_mtd_file[20U] = {0U};
-	char last_boot_img[20U] = {0U};
-	char image_file_name[100U] = {0U};
-	char image_name[8] = {0U};
 	int opt;
 	int update_flag = 0;
 	int verify_flag = 0;
 	int help_flag = 0;
 	int print_flag = 0;
+	int set_partition_a_active_flag = 0;
+	int set_partition_b_active_flag = 0;
 
-	while((opt = getopt(argc, argv, "hpvi")) != -1) {
+	while((opt = getopt(argc, argv, "hpviab")) != -1) {
 		switch(opt)
 		{
 			case 'h':
@@ -210,6 +213,13 @@ int main(int argc, char *argv[])
 				}
 			}
 				break;
+			case 'a':
+				set_partition_a_active_flag = 1;
+				break;
+			case 'b':
+				set_partition_b_active_flag = 1;
+				break;
+
 			default:
 			{
 				printf("Invalid option!\n");
@@ -221,6 +231,14 @@ int main(int argc, char *argv[])
 
 	ret = read_persistent_register();
 	if (ret != XST_SUCCESS) {
+		return ret;
+	}
+	if (set_partition_a_active_flag == 1) {
+		set_partition(0);
+		return ret;
+	}
+	if (set_partition_b_active_flag == 1) {
+		set_partition(1);
 		return ret;
 	}
 
@@ -333,6 +351,58 @@ END:
 	return ret;
 }
 
+/*****************************************************************************/
+/**
+ * @brief
+ * This function sets the reqested_boot_img flag, allowing the user to force the
+ * next boot image
+ *
+ * @return	Status
+ *
+ *****************************************************************************/
+static int set_partition(int partition) {
+	int ret = 0;
+
+	(void)verify_current_running_image();
+
+	printf("\r\n");
+
+	if (partition == 0) {
+		printf("Requested boot img = ImageA\n");
+		boot_img_info.persistent_state.requested_boot_img = (char)SYS_BOOT_IMG_A_ID;
+		strcpy(image_name, "ImageA");
+		strcpy(qspi_mtd_file, "/dev/mtd5");
+		strcpy(last_boot_img, "/dev/mtd7");
+	} else {
+		printf("Requested boot img = ImageB\n");
+		boot_img_info.persistent_state.requested_boot_img = (char)SYS_BOOT_IMG_B_ID;
+		strcpy(image_name, "ImageB");
+		strcpy(qspi_mtd_file, "/dev/mtd7");
+		strcpy(last_boot_img, "/dev/mtd5");
+	}
+
+	printf("Update QSPI boot partition\n");
+	ret = update_persistent_registers();
+	if (ret < 0)
+		goto END;
+
+	ret = extract_image_version(last_boot_img);
+	if (ret != XST_SUCCESS)
+		goto END;
+
+	if(img_ver < XBIU_IMG_VERSION_CHECK){
+		printf("Clearing multiboot register value\n");
+		ret = clear_multiboot_val();
+		if (ret != XST_SUCCESS)
+			goto END;
+	}
+
+	printf("\r\n");
+
+END:
+
+	return ret;
+}
 /*****************************************************************************/
 /**
  * @brief
@@ -998,6 +1068,8 @@ static void print_usage(void)
 	printf("  -p      prints persistent status registers.\n");
 	printf("  -v      marks the current running bootfw image as bootable,");
 	printf(" %s\n",check_image_update_status());
+	printf("  -a      Force boot from A,\n");
+	printf("  -b      Force boot from B,\n");
 	printf("  -h      prints menu.\n\n");
 }
 
