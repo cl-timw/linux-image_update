@@ -78,6 +78,7 @@ static int print_image_rev_info(char *qspi_mtd_file, char *image_name);
 static int clear_multiboot_val(void);
 static int extract_image_version(char *qspi_mtd_file);
 static int set_partition(int partition);
+static int set_a_b_non_bootable(void);
 
 /* Variable definitions */
 static char *srcaddr = NULL;
@@ -184,8 +185,9 @@ int main(int argc, char *argv[])
 	int print_flag = 0;
 	int set_partition_a_active_flag = 0;
 	int set_partition_b_active_flag = 0;
+	int set_partition_c_active_flag = 0;
 
-	while((opt = getopt(argc, argv, "hpviab")) != -1) {
+	while((opt = getopt(argc, argv, "hpviabc")) != -1) {
 		switch(opt)
 		{
 			case 'h':
@@ -219,6 +221,9 @@ int main(int argc, char *argv[])
 			case 'b':
 				set_partition_b_active_flag = 1;
 				break;
+			case 'c':
+				set_partition_c_active_flag = 1;
+				break;
 
 			default:
 			{
@@ -239,6 +244,10 @@ int main(int argc, char *argv[])
 	}
 	if (set_partition_b_active_flag == 1) {
 		set_partition(1);
+		return ret;
+	}
+	if (set_partition_c_active_flag == 1) {
+		set_a_b_non_bootable();
 		return ret;
 	}
 
@@ -388,6 +397,35 @@ static int set_partition(int partition) {
 
 	ret = extract_image_version(last_boot_img);
 	if (ret != XST_SUCCESS)
+		goto END;
+
+	if(img_ver < XBIU_IMG_VERSION_CHECK){
+		printf("Clearing multiboot register value\n");
+		ret = clear_multiboot_val();
+		if (ret != XST_SUCCESS)
+			goto END;
+	}
+
+	printf("\r\n");
+
+END:
+
+	return ret;
+}
+
+
+static int set_a_b_non_bootable(void) {
+	int ret = 0;
+
+
+	printf("\r\n");
+	printf("Mark Image A non-bootable\n");
+	boot_img_info.persistent_state.img_b_bootable = 0U;
+	printf("Mark Image B non-bootable\n");
+	boot_img_info.persistent_state.img_a_bootable = 0U;
+	printf("Update QSPI boot partition\n");
+	ret = update_persistent_registers();
+	if (ret < 0)
 		goto END;
 
 	if(img_ver < XBIU_IMG_VERSION_CHECK){
@@ -1070,6 +1108,7 @@ static void print_usage(void)
 	printf(" %s\n",check_image_update_status());
 	printf("  -a      Force boot from A,\n");
 	printf("  -b      Force boot from B,\n");
+	printf("  -c      Mark both A/B as non-bootable,\n");
 	printf("  -h      prints menu.\n\n");
 }
 
